@@ -157,6 +157,9 @@ function reducer(state, action) {
     case 'ADD_REPORT':
       return { ...state, reports: [action.payload, ...state.reports] }
 
+    case 'DELETE_REPORT':
+      return { ...state, reports: state.reports.filter(r => r.id !== action.id) }
+
     case 'LIKE_POST': {
       const post     = state.forumPosts.find(p => p.id === action.id)
       const wasLiked = post?.likedByMe ?? false
@@ -219,6 +222,7 @@ export function AppProvider({ children }) {
     addCoins:     (amount)           => dispatch({ type: 'ADD_COINS',     amount }),
     spendCoins:   (amount)           => dispatch({ type: 'SPEND_COINS',   amount }),
     addReport:    (report)           => dispatch({ type: 'ADD_REPORT',    payload: { id: uid(), ...report } }),
+    deleteReport: (id)               => dispatch({ type: 'DELETE_REPORT', id }),
     likePost:     (id)               => dispatch({ type: 'LIKE_POST',     id }),
     addComment:   (postId, comment)  => dispatch({ type: 'ADD_COMMENT',   postId, comment }),
     addPost:      (payload)          => dispatch({ type: 'ADD_POST',      payload }),

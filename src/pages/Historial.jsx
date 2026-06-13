@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, X, Printer, Droplets, AlertCircle, Sun, ChevronDown, ChevronUp, Loader, Sparkles, AlertTriangle } from 'lucide-react'
+import { FileText, X, Printer, Droplets, AlertCircle, Sun, ChevronDown, ChevronUp, Loader, Sparkles, AlertTriangle, Trash2 } from 'lucide-react'
 import { useApp, useReportsByDate } from '../context/AppContext.jsx'
 import { generateMedicalSummary } from '../services/azureService.js'
 import Button from '../components/Button.jsx'
@@ -56,7 +56,7 @@ function renderMarkdown(text) {
 
 function ReportModal({ text, childName, onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col">
+    <div className="fixed inset-0 z-[100] flex flex-col">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 no-print" onClick={onClose} />
 
@@ -115,8 +115,9 @@ function ReportModal({ text, childName, onClose }) {
 }
 
 // ─── Tarjeta de reporte (timeline UI) ────────────────────────────────────────
-function ReporteCard({ report }) {
-  const [open, setOpen] = useState(false)
+function ReporteCard({ report, onDelete }) {
+  const [open,    setOpen]    = useState(false)
+  const [confirm, setConfirm] = useState(false)
   const meta = SEV[report.severity] ?? SEV.moderado
 
   return (
@@ -159,6 +160,32 @@ function ReporteCard({ report }) {
               <p className="text-[11px] text-gray-400 italic leading-snug">"{report.transcript}"</p>
             </div>
           )}
+
+          {/* Borrar registro con confirmación */}
+          {!confirm ? (
+            <button
+              onClick={() => setConfirm(true)}
+              className="mt-1 w-full flex items-center justify-center gap-1.5 text-xs text-red-400 font-semibold py-2 rounded-2xl bg-red-50/60 active:scale-95 transition-transform"
+            >
+              <Trash2 size={12} />
+              Eliminar registro
+            </button>
+          ) : (
+            <div className="mt-1 flex gap-2">
+              <button
+                onClick={() => onDelete(report.id)}
+                className="flex-1 text-xs font-bold text-white bg-red-500 py-2 rounded-2xl active:scale-95 transition-transform"
+              >
+                Sí, eliminar
+              </button>
+              <button
+                onClick={() => setConfirm(false)}
+                className="flex-1 text-xs font-semibold text-gray-500 bg-gray-100 py-2 rounded-2xl active:scale-95 transition-transform"
+              >
+                Cancelar
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -167,7 +194,7 @@ function ReporteCard({ report }) {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function Historial() {
-  const { state }   = useApp()
+  const { state, actions } = useApp()
   const gruposFecha = useReportsByDate()
 
   const [generating,  setGenerating]  = useState(false)
@@ -292,7 +319,7 @@ export default function Historial() {
                     {i < items.length - 1 && <div className="w-px flex-1 bg-primary-100 mt-1 min-h-[16px]" />}
                   </div>
                   <div className="flex-1">
-                    <ReporteCard report={r} />
+                    <ReporteCard report={r} onDelete={actions.deleteReport} />
                   </div>
                 </div>
               ))}
