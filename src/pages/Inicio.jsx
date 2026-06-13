@@ -8,15 +8,14 @@ import { analyzeSymptom } from '../services/azureService.js'
 import CoinBadge from '../components/CoinBadge.jsx'
 import Card from '../components/Card.jsx'
 
-// ─── Máquina de estados del flujo de voz ─────────────────────────────────────
+// ─── Máquina de estados ───────────────────────────────────────────────────────
 const RS = {
-  IDLE:       'idle',       // esperando
-  LISTENING:  'listening',  // Web Speech escuchando
-  ANALYZING:  'analyzing',  // Azure procesando
-  DONE:       'done',       // éxito breve antes de volver a idle
+  IDLE:      'idle',
+  LISTENING: 'listening',
+  ANALYZING: 'analyzing',
+  DONE:      'done',
 }
 
-// ─── Meta-datos de severidad ──────────────────────────────────────────────────
 const SEV = {
   leve:     { label: 'Leve',     bg: 'bg-emerald-50',  border: 'border-emerald-200', dot: 'bg-emerald-400', text: 'text-emerald-600' },
   moderado: { label: 'Moderado', bg: 'bg-amber-50',    border: 'border-amber-200',   dot: 'bg-amber-400',   text: 'text-amber-600'   },
@@ -33,65 +32,42 @@ export default function Inicio() {
   const reportsToday       = useReportsToday()
   const user               = state.user
 
-  // Estado de la máquina de voz
-  const [recState,    setRecState]    = useState(RS.IDLE)
-  const [transcript,  setTranscript]  = useState('')  // texto capturado en vivo
-  const [toast,       setToast]       = useState(null)
-  const [errorMsg,    setErrorMsg]    = useState(null)
-  const [invalidMsg,  setInvalidMsg]  = useState(null)
+  const [recState,   setRecState]   = useState(RS.IDLE)
+  const [transcript, setTranscript] = useState('')
+  const [toast,      setToast]      = useState(null)
+  const [errorMsg,   setErrorMsg]   = useState(null)
+  const [invalidMsg, setInvalidMsg] = useState(null)
 
-  // Refs que persisten entre renders sin causar re-renders
-  const recognitionRef  = useRef(null)
-  const hasResultRef    = useRef(false)
+  const recognitionRef = useRef(null)
+  const hasResultRef   = useRef(false)
 
-  // Auto-descarta el toast y el error después de un tiempo
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 5000)
-    return () => clearTimeout(t)
-  }, [toast])
+  useEffect(() => { if (!toast)      return; const t = setTimeout(() => setToast(null),      5000); return () => clearTimeout(t) }, [toast])
+  useEffect(() => { if (!errorMsg)   return; const t = setTimeout(() => setErrorMsg(null),   6000); return () => clearTimeout(t) }, [errorMsg])
+  useEffect(() => { if (!invalidMsg) return; const t = setTimeout(() => setInvalidMsg(null), 5000); return () => clearTimeout(t) }, [invalidMsg])
 
-  useEffect(() => {
-    if (!errorMsg) return
-    const t = setTimeout(() => setErrorMsg(null), 6000)
-    return () => clearTimeout(t)
-  }, [errorMsg])
-
-  useEffect(() => {
-    if (!invalidMsg) return
-    const t = setTimeout(() => setInvalidMsg(null), 5000)
-    return () => clearTimeout(t)
-  }, [invalidMsg])
-
-  // ─── Procesa el transcript con Azure OpenAI ───────────────────────────────
   const handleTranscript = useCallback(async (text) => {
     setRecState(RS.ANALYZING)
-
     try {
       const result = await analyzeSymptom(text, user)
 
       if (!result.isValid) {
-        setInvalidMsg(result.note || 'No se detectaron síntomas médicos en el audio. Intenta de nuevo.')
+        setInvalidMsg(result.note || 'No se detectaron síntomas médicos. Intenta de nuevo.')
         setRecState(RS.IDLE)
         return
       }
 
-      const now  = new Date()
-      const date = now.toISOString().slice(0, 10)
-      const time = now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
-
+      const now    = new Date()
       const report = {
-        date, time,
+        date: now.toISOString().slice(0, 10),
+        time: now.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }),
         severity:   result.severity,
         symptoms:   result.symptoms,
         zones:      result.zones,
         note:       result.note,
         transcript: text,
       }
-
       actions.addReport(report)
       actions.addCoins(20)
-
       setToast({ ...report, coins: 20 })
       setRecState(RS.DONE)
       setTimeout(() => setRecState(RS.IDLE), 1000)
@@ -103,263 +79,155 @@ export default function Inicio() {
     }
   }, [user, actions])
 
-  // ─── Inicia el reconocimiento de voz ─────────────────────────────────────
   const startListening = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      setErrorMsg('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.')
-      return
-    }
+    if (!SpeechRecognition) { setErrorMsg('Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.'); return }
 
     const rec = new SpeechRecognition()
-    rec.lang             = 'es-CL'
-    rec.continuous       = false
-    rec.interimResults   = true   // permite mostrar texto en tiempo real
-    rec.maxAlternatives  = 1
-
+    rec.lang = 'es-CL'; rec.continuous = false; rec.interimResults = true; rec.maxAlternatives = 1
     hasResultRef.current = false
-    setTranscript('')
-    setErrorMsg(null)
+    setTranscript(''); setErrorMsg(null)
 
-    rec.onstart = () => setRecState(RS.LISTENING)
-
-    // Actualiza el transcript en tiempo real (interimResults)
+    rec.onstart  = () => setRecState(RS.LISTENING)
     rec.onresult = (event) => {
-      let interim = ''
-      let final   = ''
-      for (const result of event.results) {
-        if (result.isFinal) final   += result[0].transcript
-        else                interim += result[0].transcript
-      }
+      let interim = '', final = ''
+      for (const r of event.results) { if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript }
       setTranscript(final || interim)
-      if (final) {
-        hasResultRef.current = true
-        recognitionRef.current?.stop()
-        handleTranscript(final.trim())
-      }
+      if (final) { hasResultRef.current = true; recognitionRef.current?.stop(); handleTranscript(final.trim()) }
     }
-
-    rec.onerror = (event) => {
-      const MSG = {
-        'no-speech':      'No se detectó voz. Habla más cerca del micrófono.',
-        'audio-capture':  'No se pudo acceder al micrófono. Verifica los permisos.',
-        'not-allowed':    'Permiso de micrófono denegado. Habilítalo en el navegador.',
-        'network':        'Error de red al procesar el audio.',
-        'aborted':        null,  // ignorar (el usuario canceló)
-      }
+    rec.onerror  = (event) => {
+      const MSG = { 'no-speech': 'No se detectó voz. Habla más cerca del micrófono.', 'audio-capture': 'No se pudo acceder al micrófono.', 'not-allowed': 'Permiso de micrófono denegado.', 'network': 'Error de red.', 'aborted': null }
       const msg = MSG[event.error]
       if (msg) setErrorMsg(msg)
       if (event.error !== 'aborted') setRecState(RS.IDLE)
     }
-
-    rec.onend = () => {
-      // Si el reconocimiento terminó sin resultado (solo silencio)
-      if (!hasResultRef.current) {
-        setRecState(RS.IDLE)
-      }
-    }
-
+    rec.onend    = () => { if (!hasResultRef.current) setRecState(RS.IDLE) }
     recognitionRef.current = rec
     rec.start()
   }, [handleTranscript])
 
-  // ─── Detiene la escucha manualmente ──────────────────────────────────────
-  const stopListening = useCallback(() => {
-    recognitionRef.current?.stop()
-    // onend llamará a handleTranscript si ya hay texto
-  }, [])
+  const stopListening  = useCallback(() => { recognitionRef.current?.stop() }, [])
+  const handleMicClick = () => { if (recState === RS.IDLE) startListening(); else if (recState === RS.LISTENING) stopListening() }
 
-  // ─── Dispatcher del botón central ────────────────────────────────────────
-  const handleMicClick = () => {
-    if (recState === RS.IDLE)      return startListening()
-    if (recState === RS.LISTENING) return stopListening()
-    // ANALYZING / DONE: ignorar clicks
-  }
+  const isListening = recState === RS.LISTENING
+  const isAnalyzing = recState === RS.ANALYZING
+  const isActive    = isListening || isAnalyzing
+  const isDisabled  = isAnalyzing || recState === RS.DONE
 
-  const isListening  = recState === RS.LISTENING
-  const isAnalyzing  = recState === RS.ANALYZING
-  const isActive     = isListening || isAnalyzing
-  const isDisabled   = isAnalyzing || recState === RS.DONE
-
-  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-5 relative">
 
-      {/* ── Toast de éxito ──────────────────────────────────────────────── */}
+      {/* Toast éxito */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-[390px]">
           <div className="bg-white border border-emerald-200 rounded-3xl p-4 shadow-xl shadow-emerald-100 flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0">
-              <Sparkles size={20} className="text-emerald-500" />
-            </div>
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0"><Sparkles size={20} className="text-emerald-500" /></div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-gray-800">¡Síntoma registrado con IA!</p>
-              <p className="text-xs text-gray-500 mt-0.5 leading-snug">
-                <span className="font-semibold capitalize">{toast.severity}</span>
-                {' · '}{toast.symptoms.slice(0, 2).join(', ')} en {toast.zones.slice(0, 2).join(', ')}
-              </p>
-              {toast.note && (
-                <p className="text-xs text-gray-400 italic mt-0.5 truncate">"{toast.note}"</p>
-              )}
+              <p className="text-xs text-gray-500 mt-0.5 leading-snug"><span className="font-semibold capitalize">{toast.severity}</span>{' · '}{toast.symptoms.slice(0, 2).join(', ')} en {toast.zones.slice(0, 2).join(', ')}</p>
+              {toast.note && <p className="text-xs text-gray-400 italic mt-0.5 truncate">"{toast.note}"</p>}
               <p className="text-xs font-bold text-amber-600 mt-1">+{toast.coins} monedas ganadas 🪙</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Toast de audio no médico ────────────────────────────────────── */}
+      {/* Toast audio no médico */}
       {invalidMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-[390px]">
           <div className="bg-white border border-amber-200 rounded-3xl p-4 shadow-xl shadow-amber-100 flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0">
-              <AlertTriangle size={20} className="text-amber-500" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-gray-800">Audio no reconocido</p>
-              <p className="text-xs text-gray-500 mt-0.5 leading-snug">{invalidMsg}</p>
-            </div>
+            <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center shrink-0"><AlertTriangle size={20} className="text-amber-500" /></div>
+            <div className="flex-1"><p className="text-sm font-bold text-gray-800">Audio no reconocido</p><p className="text-xs text-gray-500 mt-0.5 leading-snug">{invalidMsg}</p></div>
           </div>
         </div>
       )}
 
-      {/* ── Toast de error ──────────────────────────────────────────────── */}
+      {/* Toast error técnico */}
       {errorMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-[390px]">
           <div className="bg-white border border-red-200 rounded-3xl p-4 shadow-xl shadow-red-100 flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
-              <AlertTriangle size={20} className="text-red-500" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-bold text-gray-800">Ocurrió un problema</p>
-              <p className="text-xs text-gray-500 mt-0.5 leading-snug">{errorMsg}</p>
-            </div>
+            <div className="w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center shrink-0"><AlertTriangle size={20} className="text-red-500" /></div>
+            <div className="flex-1"><p className="text-sm font-bold text-gray-800">Ocurrió un problema</p><p className="text-xs text-gray-500 mt-0.5 leading-snug">{errorMsg}</p></div>
           </div>
         </div>
       )}
 
-      {/* ── Header ──────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="flex items-center justify-between pt-2">
         <div>
           <p className="text-xs text-gray-400 font-medium">Buenos días,</p>
-          <h2 className="text-lg font-bold text-gray-800">
-            Hola, {user?.caregiverName || 'Mamá'} 👋
-          </h2>
+          <h2 className="text-lg font-bold text-gray-800">Hola, {user?.caregiverName || 'Mamá'} 👋</h2>
         </div>
         <div className="flex items-center gap-2">
           <CoinBadge />
-          <button
-            onClick={actions.logout}
-            title="Cerrar sesión"
-            className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-transform"
-          >
+          <button onClick={actions.logout} title="Cerrar sesión" className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-transform">
             <LogOut size={18} />
           </button>
         </div>
       </div>
 
-      {/* ── Banda de estado del día ──────────────────────────────────────── */}
+      {/* Banda estado día */}
       {reportsToday.length > 0 && (() => {
-        const worst = reportsToday.some(r => r.severity === 'severo')   ? 'severo'
-                    : reportsToday.some(r => r.severity === 'moderado') ? 'moderado'
-                    : 'leve'
-        const meta = SEV[worst]
+        const worst = reportsToday.some(r => r.severity === 'severo') ? 'severo' : reportsToday.some(r => r.severity === 'moderado') ? 'moderado' : 'leve'
+        const meta  = SEV[worst]
         return (
           <div className={`${meta.bg} ${meta.border} border rounded-3xl px-4 py-3 flex items-center gap-3`}>
             <span className={`w-2.5 h-2.5 rounded-full ${meta.dot} shrink-0`} />
             <div>
-              <p className="text-xs font-semibold text-gray-500">
-                Estado de hoy · {reportsToday.length} {reportsToday.length === 1 ? 'registro' : 'registros'}
-              </p>
+              <p className="text-xs font-semibold text-gray-500">Estado de hoy · {reportsToday.length} {reportsToday.length === 1 ? 'registro' : 'registros'}</p>
               <p className={`text-sm font-bold ${meta.text}`}>
-                {worst === 'severo'   ? 'Brote severo detectado — contacta al médico'        :
-                 worst === 'moderado' ? `Síntomas moderados en ${user?.childNickname || 'el peque'}` :
-                                       `Día tranquilo para ${user?.childNickname || 'el peque'} 🌿`}
+                {worst === 'severo' ? 'Brote severo detectado — contacta al médico' : worst === 'moderado' ? `Síntomas moderados en ${user?.childNickname || 'el peque'}` : `Día tranquilo para ${user?.childNickname || 'el peque'} 🌿`}
               </p>
             </div>
           </div>
         )
       })()}
 
-      {/* ── Botón de voz central ────────────────────────────────────────── */}
+      {/* Botón de voz */}
       <div className="flex flex-col items-center gap-4 py-2">
-        <div className="relative flex items-center justify-center">
 
-          {/* Anillos pulsantes */}
+        {/* Guía de voz */}
+        <div className="w-full bg-primary-50/70 border border-primary-100 rounded-2xl px-4 py-2.5 text-center">
+          <p className="text-xs text-primary-600 leading-snug">
+            💡 <span className="font-semibold">Guía:</span> Cuéntame qué síntomas tiene hoy, en qué partes del cuerpo y si algo lo empeoró.
+          </p>
+        </div>
+
+        <div className="relative flex items-center justify-center">
           {isActive && (
             <>
               <span className="absolute w-44 h-44 rounded-full bg-primary-200 pulse-ring" />
-              <span className="absolute w-36 h-36 rounded-full bg-primary-300 pulse-ring"
-                    style={{ animationDelay: '0.4s' }} />
+              <span className="absolute w-36 h-36 rounded-full bg-primary-300 pulse-ring" style={{ animationDelay: '0.4s' }} />
             </>
           )}
-
           <button
             onClick={handleMicClick}
             disabled={isDisabled}
             aria-label={isListening ? 'Detener grabación' : 'Iniciar grabación'}
-            className={`
-              relative z-10 w-28 h-28 rounded-full flex flex-col items-center justify-center gap-1.5
-              shadow-2xl transition-all duration-300
-              ${!isDisabled ? 'active:scale-95' : 'cursor-not-allowed opacity-90'}
-              ${isListening  ? 'bg-red-500 shadow-red-200' :
-                isAnalyzing  ? 'bg-primary-400 shadow-primary-200' :
-                               'bg-gradient-to-br from-primary-500 to-primary-700 shadow-primary-200'}
-            `}
+            className={`relative z-10 w-28 h-28 rounded-full flex flex-col items-center justify-center gap-1.5 shadow-2xl transition-all duration-300 ${!isDisabled ? 'active:scale-95' : 'cursor-not-allowed opacity-90'} ${isListening ? 'bg-red-500 shadow-red-200' : isAnalyzing ? 'bg-primary-400 shadow-primary-200' : 'bg-gradient-to-br from-primary-500 to-primary-700 shadow-primary-200'}`}
           >
-            {isAnalyzing ? (
-              /* Spinner de IA */
-              <BrainCircuit size={36} className="text-white animate-pulse" />
-            ) : isListening ? (
-              <MicOff size={38} className="text-white" />
-            ) : (
-              <Mic size={38} className="text-white" />
-            )}
+            {isAnalyzing ? <BrainCircuit size={36} className="text-white animate-pulse" /> : isListening ? <MicOff size={38} className="text-white" /> : <Mic size={38} className="text-white" />}
           </button>
         </div>
 
-        {/* Etiqueta de estado + transcript en vivo */}
         <div className="text-center px-4">
           <p className="text-sm font-semibold text-gray-700 leading-snug">
-            {isListening  ? '🔴 Escuchando… toca para detener'  :
-             isAnalyzing  ? '🧠 Analizando con IA…'             :
-             recState === RS.DONE ? '✅ ¡Guardado!' :
-                                    'Presiona para hablar'}
+            {isListening ? '🔴 Escuchando… toca para detener' : isAnalyzing ? '🧠 Analizando con IA…' : recState === RS.DONE ? '✅ ¡Guardado!' : 'Presiona para hablar'}
           </p>
-
-          {/* Transcript en tiempo real */}
-          {isListening && transcript && (
-            <p className="text-xs text-primary-500 mt-1.5 italic px-2 leading-snug max-h-12 overflow-hidden">
-              "{transcript}"
-            </p>
-          )}
-
-          {/* Transcript enviado a Azure */}
-          {isAnalyzing && transcript && (
-            <p className="text-xs text-gray-400 mt-1 italic px-2 leading-snug">
-              "{transcript}"
-            </p>
-          )}
-
-          {!isActive && recState !== RS.DONE && (
-            <p className="text-xs text-gray-400 mt-0.5">+20 monedas por cada registro</p>
-          )}
+          {isListening  && transcript && <p className="text-xs text-primary-500 mt-1.5 italic px-2 leading-snug max-h-12 overflow-hidden">"{transcript}"</p>}
+          {isAnalyzing  && transcript && <p className="text-xs text-gray-400 mt-1 italic px-2 leading-snug">"{transcript}"</p>}
+          {!isActive && recState !== RS.DONE && <p className="text-xs text-gray-400 mt-0.5">+20 monedas por cada registro</p>}
         </div>
       </div>
 
-      {/* ── Historial de hoy ────────────────────────────────────────────── */}
+      {/* Historial de hoy */}
       <Card>
         <Card.Header
           title="Historial de hoy"
           subtitle={formatDate(new Date().toISOString().slice(0, 10))}
           icon={<Droplets size={16} className="text-primary-500" />}
-          action={
-            <button className="text-xs text-primary-500 font-semibold flex items-center gap-0.5">
-              Ver todo <ChevronRight size={14} />
-            </button>
-          }
+          action={<button className="text-xs text-primary-500 font-semibold flex items-center gap-0.5">Ver todo <ChevronRight size={14} /></button>}
         />
-
         {reportsToday.length === 0 ? (
           <div className="text-center py-6">
             <p className="text-sm text-gray-400">No hay registros hoy.</p>
@@ -373,26 +241,16 @@ export default function Inicio() {
                 <div key={r.id ?? i} className="flex gap-3">
                   <div className="flex flex-col items-center shrink-0">
                     <span className="text-xs font-bold text-gray-400">{r.time}</span>
-                    {i < Math.min(reportsToday.length, 4) - 1 && (
-                      <div className="w-px flex-1 bg-gray-100 mt-1 min-h-[16px]" />
-                    )}
+                    {i < Math.min(reportsToday.length, 4) - 1 && <div className="w-px flex-1 bg-gray-100 mt-1 min-h-[16px]" />}
                   </div>
                   <div className={`flex-1 min-w-0 ${meta.bg} ${meta.border} border rounded-2xl px-3 py-2.5`}>
                     <div className="flex items-center gap-1.5 mb-1">
                       <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                       <span className={`text-xs font-bold ${meta.text}`}>{meta.label}</span>
                     </div>
-                    <p className="text-xs text-gray-600 leading-snug truncate">
-                      {r.symptoms.join(', ')} en {r.zones.join(', ')}
-                    </p>
-                    {r.note && (
-                      <p className="text-xs text-gray-400 italic mt-0.5 leading-snug line-clamp-2">"{r.note}"</p>
-                    )}
-                    {r.transcript && (
-                      <p className="text-[10px] text-gray-300 mt-1 leading-snug truncate">
-                        🎤 "{r.transcript}"
-                      </p>
-                    )}
+                    <p className="text-xs text-gray-600 leading-snug truncate">{r.symptoms.join(', ')} en {r.zones.join(', ')}</p>
+                    {r.note       && <p className="text-xs text-gray-400 italic mt-0.5 leading-snug line-clamp-2">"{r.note}"</p>}
+                    {r.transcript && <p className="text-[10px] text-gray-300 mt-1 leading-snug truncate">🎤 "{r.transcript}"</p>}
                   </div>
                 </div>
               )
@@ -401,17 +259,11 @@ export default function Inicio() {
         )}
       </Card>
 
-      {/* ── Tus Peques ──────────────────────────────────────────────────── */}
+      {/* Tus Peques */}
       <Card variant="bordered">
-        <Card.Header
-          title="Tus Peques"
-          icon={<Baby size={16} className="text-primary-500" />}
-          action={<button className="text-xs text-primary-500 font-semibold">+ Agregar</button>}
-        />
+        <Card.Header title="Tus Peques" icon={<Baby size={16} className="text-primary-500" />} action={<button className="text-xs text-primary-500 font-semibold">+ Agregar</button>} />
         <div className="flex items-center gap-3 bg-primary-50 rounded-2xl p-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-300 to-pink-400 flex items-center justify-center text-2xl shrink-0">
-            🐻
-          </div>
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-300 to-pink-400 flex items-center justify-center text-2xl shrink-0">🐻</div>
           <div className="flex-1">
             <p className="font-bold text-gray-800">{user?.childNickname || 'Sami'}</p>
             <p className="text-xs text-gray-500">{user?.childAge || 3} años · Dermatitis atópica</p>
@@ -419,10 +271,7 @@ export default function Inicio() {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-1 text-amber-500">
               <Thermometer size={13} />
-              <span className="text-xs font-semibold">
-                {reportsToday.some(r => r.severity === 'severo')   ? 'Severo'   :
-                 reportsToday.some(r => r.severity === 'moderado') ? 'Moderado' : 'Leve'}
-              </span>
+              <span className="text-xs font-semibold">{reportsToday.some(r => r.severity === 'severo') ? 'Severo' : reportsToday.some(r => r.severity === 'moderado') ? 'Moderado' : 'Leve'}</span>
             </div>
             <div className="flex items-center gap-1 text-blue-400">
               <Wind size={13} />

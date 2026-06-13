@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Eye, EyeOff, Leaf } from 'lucide-react'
+import { Eye, EyeOff, Leaf, User, Stethoscope } from 'lucide-react'
 import { useApp, DEMO_USER } from '../context/AppContext.jsx'
 import Button from '../components/Button.jsx'
+
+const DEMO_MEDICO = { name: 'Dr. Pérez', specialty: 'Dermatología Pediátrica' }
 
 export default function Login() {
   const { actions } = useApp()
@@ -22,14 +24,20 @@ export default function Login() {
       return
     }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 900))
+    await new Promise(r => setTimeout(r, 800))
     setLoading(false)
 
-    if (usuario.toLowerCase() === 'sami') {
-      actions.login(DEMO_USER)
+    const u = usuario.toLowerCase().trim()
+    const p = password.trim()
+
+    if (u === 'sami' && p === 'sami') {
+      actions.login({ ...DEMO_USER, role: 'cuidador' })
       navigate('/inicio', { replace: true })
+    } else if (u === 'doc' && p === 'doc') {
+      actions.login({ ...DEMO_MEDICO, role: 'medico' })
+      navigate('/medico/pacientes', { replace: true })
     } else {
-      setError('Usuario o contraseña incorrectos. Prueba con "sami".')
+      setError('Usuario o contraseña incorrectos.')
     }
   }
 
@@ -51,7 +59,7 @@ export default function Login() {
         {/* Formulario */}
         <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide pl-1">Usuario</label>
+            <label className="label-xs">Usuario</label>
             <input
               type="text"
               placeholder="Ej: sami"
@@ -63,7 +71,7 @@ export default function Login() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide pl-1">Contraseña</label>
+            <label className="label-xs">Contraseña</label>
             <div className="relative">
               <input
                 type={showPass ? 'text' : 'password'}
@@ -102,9 +110,39 @@ export default function Login() {
           </p>
         </div>
 
-        <p className="text-xs text-gray-300 text-center">
-          Cuenta de prueba: usuario <span className="font-mono font-bold text-gray-400">sami</span>
-        </p>
+        {/* Credenciales de demo */}
+        <div className="w-full flex flex-col gap-2">
+          <p className="text-xs text-gray-400 text-center font-medium mb-1">Cuentas de demostración</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setUsuario('sami'); setPassword('sami') }}
+              className="flex-1 flex items-center gap-2 bg-primary-50 border border-primary-100 rounded-2xl px-3 py-2.5 text-left active:scale-95 transition-transform"
+            >
+              <div className="w-7 h-7 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
+                <User size={13} className="text-primary-600" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-primary-700">Cuidador</p>
+                <p className="text-[10px] text-primary-400 font-mono">sami / sami</p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setUsuario('doc'); setPassword('doc') }}
+              className="flex-1 flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-2xl px-3 py-2.5 text-left active:scale-95 transition-transform"
+            >
+              <div className="w-7 h-7 rounded-xl bg-emerald-100 flex items-center justify-center shrink-0">
+                <Stethoscope size={13} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-emerald-700">Médico</p>
+                <p className="text-[10px] text-emerald-400 font-mono">doc / doc</p>
+              </div>
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
   )
